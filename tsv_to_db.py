@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Convert cmn_sentences_graded.tsv to SQLite.
+"""Convert cmn_sentences_graded_with_pinyin_translation.tsv to SQLite.
 
 Schema
 ------
-sentences      : rank, sentence, tokens, n_chars, max_hsk, difficulty
+sentences      : rank, sentence, pinyin, translation, tokens, n_chars, max_hsk, difficulty
 sentences_fts  : FTS5 over tokens column — fast word search
                  e.g.  SELECT * FROM sentences_fts WHERE sentences_fts MATCH '比如'
-
-Pinyin omitted; generate at query time with pypinyin if needed.
 """
 import csv
 import re
@@ -18,7 +16,7 @@ import jieba
 import opencc
 
 DATA          = Path("data")
-TSV_SENTENCES = DATA / "cmn_sentences_graded.tsv"
+TSV_SENTENCES = DATA / "cmn_sentences_graded_with_pinyin_translation.tsv"
 HSK_DIR       = Path("New HSK (2025)")
 DB_PATH       = DATA / "hsk_sentences.db"
 
@@ -52,28 +50,36 @@ DROP TABLE IF EXISTS sentences_fts;
 DROP TABLE IF EXISTS sentences;
 DROP TABLE IF EXISTS hsk_words;
 CREATE TABLE sentences (
-    rank       INTEGER PRIMARY KEY,
-    sentence   TEXT    NOT NULL,
-    tokens     TEXT    NOT NULL,
-    n_chars    INTEGER,
-    max_hsk    INTEGER,
-    difficulty REAL
+    rank        INTEGER PRIMARY KEY,
+    sentence    TEXT    NOT NULL,
+    pinyin      TEXT,
+    translation TEXT,
+    tokens      TEXT    NOT NULL,
+    n_chars     INTEGER,
+    max_hsk     INTEGER,
+    difficulty  REAL
 );
 """)
 
 rows = []
 with open(TSV_SENTENCES, encoding="utf-8") as f:
-    for r in csv.DictReader(f, delimiter="\t"):
+    reader = csv.reader(f, delimiter="\t")
+    header = next(reader)
+    # col indices (two duplicate 'translation' cols — use first at index 4)
+    idx = {name: i for i, name in enumerate(header)}
+    for cols in reader:
         rows.append((
-            int(r["rank"]),
-            r["sentence"],
-            tokenise(r["sentence"]),
-            int(r["n_chars"]),
-            int(r["max_hsk"]),
-            float(r["difficulty"]),
+            int(cols[idx["rank"]]),
+            cols[idx["sentence"]],
+            cols[idx["pinyin"]],
+            cols[5],   # second translation column
+            tokenise(cols[idx["sentence"]]),
+            int(cols[idx["n_chars"]]),
+            int(cols[idx["max_hsk"]]),
+            float(cols[idx["difficulty"]]),
         ))
 
-con.executemany("INSERT INTO sentences VALUES (?,?,?,?,?,?)", rows)
+con.executemany("INSERT INTO sentences VALUES (?,?,?,?,?,?,?,?)", rows)
 print(f"sentences: {len(rows):,} rows inserted")
 
 # FTS5 content table (no data duplication — reads from sentences.tokens)
